@@ -76,6 +76,24 @@ on:
           The tag which is being released.
           By default, https://github.com/softprops/action-gh-release will use `github.ref_name`.
         type: string
+      use_changelog_release_notes:
+        default: true
+        description: |
+          Whether to extract release notes from a changelog.
+        type: boolean
+      changelog_file:
+        description: |
+          File from which to read changelog-based release notes. 
+          Meaningless if use_changelog_release_notes is false.
+        default: CHANGELOG.md
+        type: string
+      release_notes_intermediate_file:
+        description: |
+          Where to store release notes parsed from changelog, 
+          before release_prep.sh emits them to stdout.
+          Meaningless if generate_release_notes is false.
+        default: release_notes_from_changelog.md
+        type: string
 
 jobs:
   build:
@@ -101,6 +119,26 @@ jobs:
       # Fetch built artifacts (if any) from earlier jobs, which the release script may want to read.
       # Extract into ${GITHUB_WORKSPACE}/artifacts/*
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+
+      # Get the release notes for the current tag from the changelog.
+      - name: Extract release notes
+        if: ${{ inputs.use_changelog_release_notes }}
+        id: extract-release-notes # Provide handle by which downstream steps can reference output.
+        uses: sean0x42/markdown-extract@4178293dd16a52514b6cb2c01f4d309d264b2736 # v2
+        with:
+          file: ${{ inputs.changelog_file }}
+          pattern: '${{ inputs.tag_name || github.ref_name }}'
+
+      # Move the extracted release notes to an intemediate location from which they'll be moved to 
+      # the final release notes location by a script in the parent workflow.
+      - name: Propagate release notes
+        if: ${{ inputs.use_changelog_release_notes }}
+        # Store the extracted release notes in an environment variable to write to an intermediate file.
+        env:
+          RELEASE_NOTES_MARKDOWN: ${{ steps.extract-release-notes.outputs.markdown }}
+        # Write the intermediate file which will be printed to stdout by parent workflow's release_prep.sh.
+        run: |
+          echo "$RELEASE_NOTES_MARKDOWN" > ${{ inputs.release_notes_intermediate_file }}
 
       - name: Build release artifacts and prepare release notes
         run: |
